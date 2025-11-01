@@ -22,6 +22,12 @@ fi
 
 RCLONE_REMOTE="${RCLONE_REMOTE#0}"
 
+# HTML 转义函数（仅用于 <code> 内特殊字符）
+html_escape() {
+  local text="$1"
+  echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&#39;/g'
+}
+
 # Telegram 发送函数（通用，表单提交，避免 JSON 转义问题）
 send_telegram_message() {
   local message="$1"
@@ -53,16 +59,17 @@ send_telegram_message() {
   fi
 }
 
-# Telegram 失败通知（用 printf 确保 \n 换行，无多行错误）
+# Telegram 失败通知（转义 error_msg，避免特殊字符破坏 HTML）
 send_telegram_error() {
   local error_msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
+  local escaped_error=$(html_escape "$error_msg")
   
   local message
   message=$(printf '%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s\n' \
     "<b>🚨 Vaultwarden 备份失败</b>" \
     "<b>❌ 错误详情</b>" \
-    "<code>${error_msg}</code>" \
+    "<code>%s</code>" "$escaped_error" \
     "<b>⏰ 发生时间</b>" \
     "${timestamp}" \
     "<b>💡 修复建议</b>" \
@@ -71,7 +78,7 @@ send_telegram_error() {
   send_telegram_message "$message" "错误"
 }
 
-# Telegram 成功通知（同样用 printf，确保一致性）
+# Telegram 成功通知（无特殊字符，无需转义）
 send_telegram_success() {
   local archive_size="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
