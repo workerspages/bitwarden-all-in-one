@@ -1,12 +1,16 @@
 FROM vaultwarden/server:latest
 
 ARG DEBIAN_FRONTEND=noninteractive
-ENV TZ=${TZ:-UTC}
+ENV TZ=${TZ:-Asia/Shanghai}  # 默认中国时区，支持覆盖
 
-# 基础工具 + rclone + supercronic + curl（用于 Telegram 通知）
+# 基础工具 + rclone + supercronic + curl + tzdata（时区支持）
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl tzdata bash unzip; \
+    apt-get install -y --no-install-recommends ca-certificates curl tzdata bash unzip jq; \  # 添加 tzdata 和 jq
+    # 设置中国时区（东八区）
+    ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
+    echo ${TZ} > /etc/timezone && \
+    dpkg-reconfigure --frontend noninteractive tzdata; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL https://rclone.org/install.sh | bash; \
     SUPERCRONIC_VERSION=0.2.30; \
@@ -31,7 +35,6 @@ ENV BACKUP_ENABLED=true \
     RCLONE_REMOTE="" \
     RCLONE_FLAGS="--checksum --transfers=4 --checkers=8 --fast-list" \
     RESTORE_STRATEGY="replace" \
-    TZ="Asia/Shanghai" \
     TELEGRAM_ENABLED=false \
     TELEGRAM_BOT_TOKEN="" \
     TELEGRAM_CHAT_ID="" \
