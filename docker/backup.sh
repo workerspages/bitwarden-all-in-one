@@ -11,21 +11,27 @@ set -euo pipefail
 : "${TELEGRAM_BOT_TOKEN:=}"
 : "${TELEGRAM_CHAT_ID:=}"
 : "${TELEGRAM_MESSAGE:=🚨 *Vaultwarden 备份失败*\\n*错误详情：* %ERROR%\\n*时间戳：* %TIME%\\n*建议：* 验证 RCLONE_REMOTE 配置或联系管理员。}"
+: "${TEST_MODE:=false}"  # 新增：设为 true 时仅测试通知，不执行备份
 
-# MarkdownV2 转义函数（处理特殊字符）
+# 自动加载 rclone 配置（关键添加，从 restore.sh 复制）
+if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
+  mkdir -p /config/rclone
+  echo "${RCLONE_CONF_BASE64}" | base64 -d > /config/rclone/rclone.conf
+  export RCLONE_CONFIG="/config/rclone/rclone.conf"
+fi
+
+# MarkdownV2 转义函数
 escape_markdown_v2() {
   local text="$1"
-  # 转义 MarkdownV2 特殊字符
   text=$(echo "$text" | sed 's/[_*[]()~>#+=|{}.!\\-/\\/g')
   echo "$text"
 }
 
 send_telegram() {
   local error_msg="$1"
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')  # 生成时间戳
+  local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
   local message="$TELEGRAM_MESSAGE"
   
-  # 替换占位符并转义
   local escaped_error=$(escape_markdown_v2 "$error_msg")
   message="${message//%ERROR%/${escaped_error}}"
   message="${message//%TIME%/${timestamp}}"
@@ -38,6 +44,12 @@ send_telegram() {
       }
   fi
 }
+
+if [[ "${TEST_MODE}" == "true" ]]; then
+  echo "Test mode: Sending sample Telegram notification."
+  send_telegram "Test error with special chars: * & \\"  # 测试通知
+  exit 0
+fi
 
 if [[ -z "${RCLONE_REMOTE}" ]]; then
   send_telegram "RCLONE_REMOTE is not set; skipping backup."
@@ -64,7 +76,7 @@ if ! rclone copy "${archive}" "${RCLONE_REMOTE}" ${RCLONE_FLAGS}; then
   error_msg="Upload failed (network or storage issue)."
 fi
 
-# 过期清理（如果上传成功再清理，捕获清理错误）
+# 过期清理
 cleanup_error=""
 if [[ -z "${error_msg}" && "${BACKUP_RETAIN_DAYS}" -gt 0 ]]; then
   if ! rclone delete "${RCLONE_REMOTE}" --min-age "${BACKUP_RETAIN_DAYS}d" --include "*.tar.*"; then
@@ -78,6 +90,8 @@ if [[ -n "${error_msg}" ]]; then
   send_telegram "${error_msg}"
   exit 1
 elif [[ -n "${cleanup_error}" ]]; then
-  send_telegram "${cleanup_error}"  # 单独处理清理失败（非致命，但通知）
-  exit 0  # 清理失败不中断整体备份成功
+  send_telegram "${cleanup_error}"
+  exit 0  # 清理失败非致命
 fi
+
+echo "Backup completed successfully."
