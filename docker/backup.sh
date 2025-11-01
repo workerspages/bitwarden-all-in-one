@@ -10,9 +10,8 @@ set -euo pipefail
 : "${TELEGRAM_ENABLED:=false}"
 : "${TELEGRAM_BOT_TOKEN:=}"
 : "${TELEGRAM_CHAT_ID:=}"
-: "${TELEGRAM_MESSAGE:=🚨 *Vaultwarden 备份失败*\\n*错误详情：* %ERROR%\\n*时间戳：* %TIME%\\n*建议：* 验证 RCLONE_REMOTE 配置或联系管理员。}"
 : "${TEST_MODE:=false}"
-: "${CLEANUP_METHOD:=min-age}"  # 新增：支持 min-age（快速）或 jq（兼容）
+: "${CLEANUP_METHOD:=min-age}"
 
 # 自动加载 rclone 配置
 if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
@@ -21,34 +20,42 @@ if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   export RCLONE_CONFIG="/config/rclone/rclone.conf"
 fi
 
-# MarkdownV2 转义函数
-escape_markdown_v2() {
-  local text="$1"
-  text=$(echo "$text" | sed 's/[_*[]()~>#+=|{}.!\\-/\\/g')
-  echo "$text"
-}
-
 send_telegram() {
   local error_msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
-  local message="$TELEGRAM_MESSAGE"
   
-  local escaped_error=$(escape_markdown_v2 "$error_msg")
-  message="${message//%ERROR%/${escaped_error}}"
-  message="${message//%TIME%/${timestamp}}"
+  # HTML 格式（简单、可靠，无复杂转义）
+  local message="<b>🚨 Vaultwarden 备份失败</b>"
+  message="${message}<br><br>"
+  message="${message}<b>错误详情：</b><br>"
+  message="${message}<code>${error_msg}</code><br><br>"
+  message="${message}<b>时间戳：</b><br>"
+  message="${message}${timestamp}<br><br>"
+  message="${message}<b>建议：</b><br>"
+  message="${message}验证 RCLONE_REMOTE 配置或联系管理员。"
   
   if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    local response
+    echo "📤 Sending Telegram notification..."
+    response=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
       -H "Content-Type: application/json" \
-      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"MarkdownV2\"}" >/dev/null || {
-        echo "Telegram notification failed (non-fatal)"
-      }
+      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}")
+    
+    # 检查响应
+    if echo "$response" | grep -q '"ok":true'; then
+      echo "✅ Telegram notification sent successfully"
+    else
+      echo "❌ Telegram API error response:"
+      echo "$response" | tee -a /tmp/telegram_error.log
+    fi
+  else
+    echo "⚠️  Telegram not enabled (ENABLED=$TELEGRAM_ENABLED, TOKEN=${TELEGRAM_BOT_TOKEN:-(empty)}, CHAT_ID=${TELEGRAM_CHAT_ID:-(empty)})"
   fi
 }
 
 if [[ "${TEST_MODE}" == "true" ]]; then
-  echo "Test mode: Sending sample Telegram notification."
-  send_telegram "Test error with special chars: * & \\"
+  echo "🧪 Test mode: Sending sample Telegram notification."
+  send_telegram "Test error with special chars: * & < > \" '"
   exit 0
 fi
 
@@ -72,57 +79,52 @@ case "${BACKUP_COMPRESSION}" in
   *)   echo "Unsupported compression: ${BACKUP_COMPRESSION}"; exit 2 ;;
 esac
 
-echo "Backup archive created: $(du -h "${archive}" | cut -f1)"
+archive_size=$(du -h "${archive}" | cut -f1)
+echo "📦 Backup archive created: ${archive_size}"
 
-# 执行上传并检查
-echo "Uploading to ${RCLONE_REMOTE}..."
+# 执行上传
+echo "📤 Uploading to ${RCLONE_REMOTE}..."
 if ! rclone copy "${archive}" "${RCLONE_REMOTE}" ${RCLONE_FLAGS}; then
   error_msg="Upload failed (network or storage issue)."
 else
-  echo "Upload completed successfully"
+  echo "✅ Upload completed successfully"
 fi
 
 # 过期清理
 cleanup_error=""
 if [[ -z "${error_msg}" && "${BACKUP_RETAIN_DAYS}" -gt 0 ]]; then
-  echo "Cleanup: Deleting files older than ${BACKUP_RETAIN_DAYS} days..."
+  echo "🧹 Cleanup: Deleting files older than ${BACKUP_RETAIN_DAYS} days..."
   
   if [[ "${CLEANUP_METHOD}" == "min-age" ]]; then
-    # 方法1：使用 rclone --min-age（快速，但某些WebDAV不支持）
     if rclone delete "${RCLONE_REMOTE}" --min-age "${BACKUP_RETAIN_DAYS}d" --include "*.tar.*" -v 2>&1 | tee /tmp/rclone_delete.log; then
-      echo "Cleanup completed successfully"
+      echo "✅ Cleanup completed successfully"
     else
-      cleanup_error="rclone --min-age failed. Retrying with jq-based method..."
-      CLEANUP_METHOD="jq"  # 自动 fallback
+      cleanup_error="rclone --min-age failed (WebDAV compatibility issue). Attempting jq-based cleanup..."
+      CLEANUP_METHOD="jq"
     fi
   fi
   
   if [[ "${CLEANUP_METHOD}" == "jq" ]]; then
-    # 方法2：使用 jq 手动删除（兼容所有 WebDAV，包括坚果云）
+    echo "🔧 Using jq-based cleanup (WebDAV compatible)..."
     if command -v jq >/dev/null 2>&1; then
-      echo "Using jq-based cleanup (compatible with WebDAV)..."
       cutoff_date=$(date -d "${BACKUP_RETAIN_DAYS} days ago" '+%Y%m%d')
-      
-      # 列出所有文件，过滤旧备份，逐一删除
-      cleanup_error=""
       deleted_count=0
+      
       if rclone lsjson "${RCLONE_REMOTE}" --files-only 2>/dev/null | jq -r ".[] | select(.Path | test(\"${BACKUP_FILENAME_PREFIX}.*\\\\.tar\\\\.${BACKUP_COMPRESSION}\$\")) | .Path" | while read -r file; do
         file_date=$(echo "$file" | grep -oE "[0-9]{8}" | head -1)
         if [[ -n "$file_date" && "$file_date" -lt "$cutoff_date" ]]; then
-          echo "  Deleting old backup: $file (date: $file_date)"
-          if rclone delete "${RCLONE_REMOTE}/${file}" -v 2>&1; then
+          echo "  🗑️  Deleting: $file"
+          if rclone delete "${RCLONE_REMOTE}/${file}" 2>/dev/null; then
             ((deleted_count++))
-          else
-            echo "  Warning: Failed to delete $file"
           fi
         fi
       done; then
-        echo "jq-based cleanup completed (deleted $deleted_count old files)"
+        echo "✅ jq-based cleanup completed"
       else
-        cleanup_error="jq-based cleanup failed. Check remote access or jq availability."
+        cleanup_error="jq-based cleanup failed"
       fi
     else
-      cleanup_error="jq not found. Cannot perform backup retention cleanup. Install jq or disable cleanup by setting BACKUP_RETAIN_DAYS=0."
+      cleanup_error="jq not found. Install jq or set BACKUP_RETAIN_DAYS=0 to disable cleanup."
     fi
   fi
 fi
@@ -134,7 +136,7 @@ if [[ -n "${error_msg}" ]]; then
   exit 1
 elif [[ -n "${cleanup_error}" ]]; then
   send_telegram "${cleanup_error}"
-  exit 0  # 清理失败非致命
+  exit 0
 fi
 
-echo "Backup completed successfully at $(date)"
+echo "✨ Backup completed successfully at $(date)"
