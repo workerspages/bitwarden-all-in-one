@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
-# 写入 rclone 配置
-if [[ -n "${RCLONE_CONF_BASE64:-}" ]]; then
-  mkdir -p /config/rclone
-  echo "${RCLONE_CONF_BASE64}" | base64 -d > /config/rclone/rclone.conf
-  export RCLONE_CONFIG="/config/rclone/rclone.conf"
-fi
+# 启动 Vaultwarden 服务
+echo "🚀 Starting Vaultwarden service..."
+/start.sh &
+SERVICE_PID=$!
 
-# 生成定时任务文件供 supercronic 使用
+# 配置定时备份（如果启用）
 if [[ "${BACKUP_ENABLED:-true}" == "true" ]]; then
-  mkdir -p /opt
-  echo "${BACKUP_CRON} /usr/local/bin/backup.sh" > /opt/backup.cron
-  /usr/local/bin/supercronic -quiet /opt/backup.cron &
+  echo "📅 Configuring backup schedule: ${BACKUP_CRON}"
+  
+  # 创建 crontab 任务
+  CRON_CMD="/usr/local/bin/backup.sh >> /var/log/backup.log 2>&1"
+  (crontab -l 2>/dev/null || true; echo "${BACKUP_CRON} ${CRON_CMD}") | crontab -
+  
+  # 启动 supercronic（cron 后台进程）
+  /usr/local/bin/supercronic /etc/cron.d/crontabs/root &
+  CRON_PID=$!
+  
+  echo "✅ Backup scheduler started"
 fi
 
-# 兼容官方镜像启动方式
-if [[ -x "/start.sh" ]]; then
-  exec /start.sh
-elif command -v vaultwarden >/dev/null 2>&1; then
-  exec vaultwarden
-else
-  echo "Cannot find vaultwarden entrypoint, please check base image."
-  exit 1
-fi
+# 等待服务
+wait $SERVICE_PID
