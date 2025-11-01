@@ -22,10 +22,13 @@ fi
 
 RCLONE_REMOTE="${RCLONE_REMOTE#0}"
 
-# Telegram 失败通知（用 printf 确保 \n 换行，无多行错误）
+# Telegram 失败通知（添加 JSON 转义，确保特殊字符安全）
 send_telegram_error() {
   local error_msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
+  
+  # 转义 error_msg 中的双引号为 JSON 安全
+  error_msg=$(echo "${error_msg}" | sed 's/"/\\"/g')
   
   local message
   message=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
@@ -47,9 +50,9 @@ send_telegram_error() {
       -H "Content-Type: application/json" \
       -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}")
     
-    # 可选调试：生产时注释掉
+    # 可选调试：仅测试模式输出（生产注释掉）
     if [[ "${TEST_MODE}" == "true" ]]; then
-      echo "🔍 API 响应: ${response}"
+      echo "🔍 错误 API 响应: ${response}"
     fi
     
     if echo "$response" | grep -q '"ok":true'; then
@@ -62,7 +65,7 @@ send_telegram_error() {
   fi
 }
 
-# Telegram 成功通知（同样用 printf，确保一致性）
+# Telegram 成功通知（保持原样，无需转义）
 send_telegram_success() {
   local archive_size="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
@@ -89,9 +92,9 @@ send_telegram_success() {
       -H "Content-Type: application/json" \
       -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}")
     
-    # 可选调试：生产时注释掉
+    # 可选调试：仅测试模式输出（生产注释掉）
     if [[ "${TEST_MODE}" == "true" ]]; then
-      echo "🔍 API 响应: ${response}"
+      echo "🔍 成功 API 响应: ${response}"
     fi
     
     if echo "$response" | grep -q '"ok":true'; then
