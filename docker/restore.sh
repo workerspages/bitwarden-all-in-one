@@ -2,62 +2,65 @@
 set -euo pipefail
 
 : "${BACKUP_SRC:=/data}"
-: "${RCLONE_REMOTE:=}"
 : "${RESTORE_STRATEGY:=replace}"
 
-# 加载 rclone 配置（如果未设置）
+# 优先从环境变量加载 RCLONE_REMOTE
+if [[ -z "${RCLONE_REMOTE:-}" ]]; then
+  echo "Error: RCLONE_REMOTE not set. 请在 PaaS 平台环境变量界面正确定义，如 jianguoyun:vaultwarden-rclone"
+  exit 1
+fi
+
+# PaaS 环境变量方式自动加载 rclone.conf
 if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   mkdir -p /config/rclone
   echo "${RCLONE_CONF_BASE64}" | base64 -d > /config/rclone/rclone.conf
   export RCLONE_CONFIG="/config/rclone/rclone.conf"
 fi
 
-# 用法：
-#  1) restore.sh latest
-#  2) restore.sh remote-path/object.tar.gz
-# 要求：为确保一致性，建议在停止服务的状态下执行（或在独立一次性容器中执行）
-
+# 用法指引
 mode="${1:-}"
 if [[ -z "${mode}" ]]; then
-  echo "Usage: restore.sh latest | <remote-object-path>"
+  echo "Usage: restore.sh latest | <remote-object-filename>"
+  echo "示例：restore.sh latest"
+  echo "示例：restore.sh 1000.tar.gz"
   exit 1
 fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
+# 自动获取最新文件名
 fetch_latest() {
-  # 列表最新对象
-  rclone lsjson "${RCLONE_REMOTE}" --files-only --fast-list \
-    | jq -r 'sort_by(.ModTime)|last|.Path'
+  if ! rclone lsjson "${RCLONE_REMOTE}" --files-only --fast-list >"${work}/ls.json"; then
+    echo "Error: 远程目录列出失败，请检查 RCLONE_CONF_BASE64/rclone.conf 和 RCLONE_REMOTE 设置"
+    exit 2
+  fi
+  jq -r 'sort_by(.ModTime)|last|.Path' <"${work}/ls.json"
 }
 
 remote_obj="${mode}"
 if [[ "${mode}" == "latest" ]]; then
-  if [[ -z "${RCLONE_REMOTE}" ]]; then
-    echo "RCLONE_REMOTE is not set"
-    exit 1
-  fi
   remote_obj="$(fetch_latest)"
 fi
 
 if [[ -z "${remote_obj}" ]]; then
-  echo "No remote object to restore."
-  exit 1
+  echo "Error: 未找到远程可用备份文件，目录为空或认证失败"
+  exit 2
 fi
 
 local_archive="${work}/restore.tar"
-rclone copyto "${RCLONE_REMOTE%/}/${remote_obj}" "${local_archive}"
+if ! rclone copyto "${RCLONE_REMOTE%/}/${remote_obj}" "${local_archive}"; then
+  echo "Error: 备份文件[${remote_obj}]下载失败（认证、网络或路径配置错误）"
+  exit 2
+fi
 
 backup_before="${BACKUP_SRC%/}.pre-restore-$(date -u +%Y%m%d-%H%M%S)"
 cp -a "${BACKUP_SRC}" "${backup_before}"
 
-# 清空并恢复
 if [[ "${RESTORE_STRATEGY}" == "replace" ]]; then
   find "${BACKUP_SRC}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 fi
 
-# 根据扩展名自动解压
 case "${local_archive}" in
   *.tar.gz|*.tgz)    tar -xzf "${local_archive}" -C "${BACKUP_SRC}" ;;
   *.tar.zst|*.tzst)  tar -I zstd -xf "${local_archive}" -C "${BACKUP_SRC}" ;;
