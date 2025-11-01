@@ -3,11 +3,11 @@ FROM vaultwarden/server:latest
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
-# 安装所有依赖工具（一次性 RUN，减少镜像层）
+# 安装所有依赖工具（一次性 RUN，减少镜像层；添加 zstd 支持 zst 压缩）
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      ca-certificates curl tzdata bash unzip jq; \
+      ca-certificates curl tzdata bash unzip jq zstd; \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime; \
     echo $TZ > /etc/timezone; \
     dpkg-reconfigure --frontend noninteractive tzdata; \
@@ -37,6 +37,7 @@ ENV BACKUP_ENABLED=true \
     RCLONE_REMOTE="" \
     RCLONE_FLAGS="--checksum --transfers=4 --checkers=8 --fast-list" \
     RESTORE_STRATEGY="replace" \
+    RESTORE_ON_START="" \
     TEST_MODE="false" \
     TELEGRAM_ENABLED="false" \
     TELEGRAM_BOT_TOKEN="" \
