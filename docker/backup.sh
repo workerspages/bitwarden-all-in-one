@@ -20,19 +20,24 @@ if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   export RCLONE_CONFIG="/config/rclone/rclone.conf"
 fi
 
+# 修复：清理 RCLONE_REMOTE 中可能的前缀（如 PaaS 自动添加的版本号）
+RCLONE_REMOTE="${RCLONE_REMOTE#0}"  # 移除前缀 "0"（如有）
+RCLONE_REMOTE="${RCLONE_REMOTE#0}"  # 再次移除以防多个前缀
+
 send_telegram() {
   local error_msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
   
-  # HTML 格式（简单、可靠，无复杂转义）
-  local message="<b>🚨 Vaultwarden 备份失败</b>"
-  message="${message}<br><br>"
-  message="${message}<b>错误详情：</b><br>"
-  message="${message}<code>${error_msg}</code><br><br>"
-  message="${message}<b>时间戳：</b><br>"
-  message="${message}${timestamp}<br><br>"
-  message="${message}<b>建议：</b><br>"
-  message="${message}验证 RCLONE_REMOTE 配置或联系管理员。"
+  # HTML 格式（用 \n 换行，不用 <br>）
+  local message="<b>🚨 Vaultwarden 备份失败</b>
+<b>错误详情：</b>
+<code>${error_msg}</code>
+
+<b>时间戳：</b>
+${timestamp}
+
+<b>建议：</b>
+验证 RCLONE_REMOTE 配置或联系管理员。"
   
   if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
     local response
@@ -41,7 +46,6 @@ send_telegram() {
       -H "Content-Type: application/json" \
       -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}")
     
-    # 检查响应
     if echo "$response" | grep -q '"ok":true'; then
       echo "✅ Telegram notification sent successfully"
     else
@@ -49,7 +53,7 @@ send_telegram() {
       echo "$response" | tee -a /tmp/telegram_error.log
     fi
   else
-    echo "⚠️  Telegram not enabled (ENABLED=$TELEGRAM_ENABLED, TOKEN=${TELEGRAM_BOT_TOKEN:-(empty)}, CHAT_ID=${TELEGRAM_CHAT_ID:-(empty)})"
+    echo "⚠️  Telegram not enabled"
   fi
 }
 
@@ -99,32 +103,28 @@ if [[ -z "${error_msg}" && "${BACKUP_RETAIN_DAYS}" -gt 0 ]]; then
     if rclone delete "${RCLONE_REMOTE}" --min-age "${BACKUP_RETAIN_DAYS}d" --include "*.tar.*" -v 2>&1 | tee /tmp/rclone_delete.log; then
       echo "✅ Cleanup completed successfully"
     else
-      cleanup_error="rclone --min-age failed (WebDAV compatibility issue). Attempting jq-based cleanup..."
+      cleanup_error="rclone --min-age failed. Retrying with jq method..."
       CLEANUP_METHOD="jq"
     fi
   fi
   
   if [[ "${CLEANUP_METHOD}" == "jq" ]]; then
-    echo "🔧 Using jq-based cleanup (WebDAV compatible)..."
+    echo "🔧 Using jq-based cleanup..."
     if command -v jq >/dev/null 2>&1; then
       cutoff_date=$(date -d "${BACKUP_RETAIN_DAYS} days ago" '+%Y%m%d')
-      deleted_count=0
-      
       if rclone lsjson "${RCLONE_REMOTE}" --files-only 2>/dev/null | jq -r ".[] | select(.Path | test(\"${BACKUP_FILENAME_PREFIX}.*\\\\.tar\\\\.${BACKUP_COMPRESSION}\$\")) | .Path" | while read -r file; do
         file_date=$(echo "$file" | grep -oE "[0-9]{8}" | head -1)
         if [[ -n "$file_date" && "$file_date" -lt "$cutoff_date" ]]; then
           echo "  🗑️  Deleting: $file"
-          if rclone delete "${RCLONE_REMOTE}/${file}" 2>/dev/null; then
-            ((deleted_count++))
-          fi
+          rclone delete "${RCLONE_REMOTE}/${file}" 2>/dev/null || true
         fi
       done; then
         echo "✅ jq-based cleanup completed"
       else
-        cleanup_error="jq-based cleanup failed"
+        cleanup_error="jq cleanup failed"
       fi
     else
-      cleanup_error="jq not found. Install jq or set BACKUP_RETAIN_DAYS=0 to disable cleanup."
+      cleanup_error="jq not found"
     fi
   fi
 fi
@@ -139,4 +139,4 @@ elif [[ -n "${cleanup_error}" ]]; then
   exit 0
 fi
 
-echo "✨ Backup completed successfully at $(date)"
+echo "✨ Backup completed successfully"
