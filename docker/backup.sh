@@ -22,12 +22,12 @@ fi
 
 RCLONE_REMOTE="${RCLONE_REMOTE#0}"
 
-# Telegram MarkdownV2 完整转义函数（按官方列表：先转义 \，再其他21个特殊字符）
+# Telegram MarkdownV2 完整转义函数（官方17字符 + 额外 : 和空格处理）
 escape_markdown_v2() {
   local text="$1"
   # 先转义反斜杠
   text="${text//\\/\\\\}"
-  # 转义所有特殊字符
+  # 官方特殊字符（顺序重要，避免干扰）
   text="${text//_/\\_}"
   text="${text//*/\\*}"
   text="${text//[/\\[}"
@@ -46,14 +46,47 @@ escape_markdown_v2() {
   text="${text//}/\\}}"
   text="${text//./\\.} "
   text="${text//!/\\!}"
+  # 额外：冒号和空格（常见时间/路径问题）
+  text="${text//:/\\:}"
+  text="${text// /\\ } "  # 仅空格前转义，如果需要
   echo "$text"
+}
+
+send_telegram_message() {
+  local text="$1"
+  local type="$2"  # "error" or "success"
+  
+  if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
+    echo "📤 发送${type}通知到 Telegram..."
+    
+    # 用 jq 构建 JSON，确保转义安全（需容器有 jq）
+    local json_data
+    json_data=$(jq -n --arg text "$text" --arg chat "${TELEGRAM_CHAT_ID}" --arg mode "MarkdownV2" \
+      '{chat_id: $chat, text: $text, parse_mode: $mode}')
+    
+    local response
+    response=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -H "Content-Type: application/json" \
+      -d "$json_data")
+    
+    # 始终输出响应（测试/调试用，生产注释）
+    echo "Telegram API Response (${type}): ${response}"
+    
+    if echo "$response" | jq -e '.ok' >/dev/null 2>&1; then
+      echo "✅ ${type}通知发送成功"
+    else
+      echo "⚠️ ${type}通知失败: ${response}"
+    fi
+  else
+    echo "⚠️ Telegram 未启用或缺少凭证 (${TELEGRAM_ENABLED}, TOKEN: ${TELEGRAM_BOT_TOKEN:0:10}..., CHAT: ${TELEGRAM_CHAT_ID})"
+  fi
 }
 
 send_telegram_error() {
   local error_msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
   
-  # 转义所有动态内容
+  # 转义动态内容
   error_msg=$(escape_markdown_v2 "$error_msg")
   timestamp=$(escape_markdown_v2 "$timestamp")
   
@@ -68,31 +101,14 @@ ${timestamp}
 💡 *修复建议*
 请检查 RCLONE_REMOTE 配置，或联系管理员手动验证。"
   
-  if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
-    echo "📤 发送错误通知到 Telegram..."
-    local response
-    response=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-      -H "Content-Type: application/json" \
-      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"MarkdownV2\"}")
-    
-    # 调试输出（测试模式始终显示，生产可注释）
-    echo "Telegram API Response (Error): ${response}"
-    
-    if echo "$response" | grep -q '"ok":true'; then
-      echo "✅ 错误通知发送成功"
-    else
-      echo "⚠️ 错误通知失败: ${response}"
-    fi
-  else
-    echo "⚠️ Telegram 未启用或缺少凭证"
-  fi
+  send_telegram_message "$message" "错误"
 }
 
 send_telegram_success() {
   local archive_size="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
   
-  # 转义所有动态内容
+  # 转义动态内容
   archive_size=$(escape_markdown_v2 "$archive_size")
   timestamp=$(escape_markdown_v2 "$timestamp")
   local location=$(escape_markdown_v2 "${RCLONE_REMOTE}")
@@ -112,24 +128,7 @@ ${location}
 🧹 *清理状态*
 旧文件已自动删除（保留 ${retain_days} 天）。"
   
-  if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
-    echo "📤 发送成功通知到 Telegram..."
-    local response
-    response=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-      -H "Content-Type: application/json" \
-      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"MarkdownV2\"}")
-    
-    # 调试输出（测试模式始终显示，生产可注释）
-    echo "Telegram API Response (Success): ${response}"
-    
-    if echo "$response" | grep -q '"ok":true'; then
-      echo "✅ 成功通知发送成功"
-    else
-      echo "⚠️ 成功通知失败: ${response}"
-    fi
-  else
-    echo "⚠️ Telegram 未启用或缺少凭证"
-  fi
+  send_telegram_message "$message" "成功"
 }
 
 # 测试模式
