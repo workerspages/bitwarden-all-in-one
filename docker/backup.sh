@@ -23,57 +23,53 @@ fi
 # 清理 RCLONE_REMOTE 中的前缀
 RCLONE_REMOTE="${RCLONE_REMOTE#0}"
 
-# Telegram 失败通知
+# Telegram 失败通知（修改为直接 HTML 拼接）
 send_telegram_error() {
   local error_msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
   
-  local message
-  message=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
-    '<b>🚨 Vaultwarden 备份失败</b>' \
-    '' \
-    '<b>❌ 错误详情：</b>' \
-    "<code>${error_msg}</code>" \
-    '' \
-    '<b>⏰ 时间戳：</b>' \
-    "${timestamp}" \
-    '' \
-    '<b>💡 建议：</b>' \
-    '验证 RCLONE_REMOTE 配置或联系管理员。')
+  local message="<b>🚨 Vaultwarden 备份失败</b><br><br><b>❌ 错误详情：</b><br><code>${error_msg}</code><br><br><b>⏰ 时间戳：</b><br>${timestamp}<br><br><b>💡 建议：</b><br>验证 RCLONE_REMOTE 配置或联系管理员。"
   
   if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
     echo "📤 Sending error notification to Telegram..."
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    local response
+    response=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
       -H "Content-Type: application/json" \
-      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$(echo "$message" | jq -Rs .)\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}" >/dev/null || {
-        echo "⚠️  Telegram notification failed (non-fatal)"
-      }
+      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}")
+    echo "🔍 API Response: ${response}"  # 调试输出
+    
+    if echo "$response" | grep -q '"ok":true'; then
+      echo "✅ Telegram error notification sent successfully"
+    else
+      echo "⚠️  Telegram notification failed: ${response}"
+    fi
+  else
+    echo "⚠️  Telegram disabled or missing credentials"
   fi
 }
 
-# Telegram 成功通知
+# Telegram 成功通知（修改为直接 HTML 拼接）
 send_telegram_success() {
   local archive_size="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
   
-  local message
-  message=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
-    '<b>✅ Vaultwarden 备份成功</b>' \
-    '' \
-    '<b>📦 备份大小：</b>' \
-    "${archive_size}" \
-    '<b>📅 完成时间：</b>' \
-    "${timestamp}" \
-    '<b>☁️ 目标位置：</b>' \
-    "${RCLONE_REMOTE}")
+  local message="<b>✅ Vaultwarden 备份成功</b><br><br><b>📦 备份大小：</b><br>${archive_size}<br><br><b>📅 完成时间：</b><br>${timestamp}<br><br><b>☁️ 目标位置：</b><br>${RCLONE_REMOTE}"
   
   if [[ "${TELEGRAM_ENABLED}" == "true" && -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
     echo "📤 Sending success notification to Telegram..."
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    local response
+    response=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
       -H "Content-Type: application/json" \
-      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"$(echo "$message" | jq -Rs .)\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}" >/dev/null || {
-        echo "⚠️  Telegram notification failed (non-fatal)"
-      }
+      -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${message}\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}")
+    echo "🔍 API Response: ${response}"  # 调试输出
+    
+    if echo "$response" | grep -q '"ok":true'; then
+      echo "✅ Telegram success notification sent successfully"
+    else
+      echo "⚠️  Telegram notification failed: ${response}"
+    fi
+  else
+    echo "⚠️  Telegram disabled or missing credentials"
   fi
 }
 
