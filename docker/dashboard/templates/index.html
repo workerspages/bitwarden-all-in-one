@@ -11,6 +11,7 @@
         .log-box { background: #212529; color: #00ff00; font-family: monospace; height: 300px; overflow-y: scroll; padding: 10px; font-size: 0.9em; }
         .table-files { font-size: 0.9em; }
         .nav-brand { font-weight: bold; }
+        .btn-xs { font-size: 0.8rem; padding: 0.1rem 0.4rem; }
     </style>
 </head>
 <body>
@@ -99,23 +100,29 @@
                 <div class="card-body p-0">
                     {% if remote_files %}
                     <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                        <table class="table table-striped table-hover table-sm table-files mb-0">
+                        <table class="table table-striped table-hover table-sm table-files mb-0 align-middle">
                             <thead class="table-light sticky-top">
                                 <tr>
                                     <th>文件名</th>
                                     <th>时间</th>
                                     <th>大小</th>
-                                    <th>操作</th>
+                                    <th class="text-end">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for file in remote_files %}
                                 <tr>
-                                    <td>{{ file.Name }}</td>
+                                    <td class="text-truncate" style="max-width: 150px;" title="{{ file.Name }}">{{ file.Name }}</td>
                                     <td>{{ file.ModTime }}</td>
                                     <td>{{ file.SizeHuman }}</td>
-                                    <td>
-                                        <a href="/download/{{ file.Name }}" class="btn btn-xs btn-outline-primary btn-sm py-0" target="_blank">下载</a>
+                                    <td class="text-end">
+                                        <a href="/download/{{ file.Name }}" class="btn btn-xs btn-outline-primary" target="_blank">下载</a>
+                                        
+                                        <!-- 指定文件还原按钮 -->
+                                        <form action="/restore_file" method="POST" style="display:inline-block;">
+                                            <input type="hidden" name="filename" value="{{ file.Name }}">
+                                            <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('⚠️ 警告：\n\n确定要还原文件 [{{ file.Name }}] 吗？\n\n这将覆盖当前的数据库，建议先手动备份！')">还原</button>
+                                        </form>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -150,7 +157,6 @@
                                 <input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}" placeholder="onedrive:/backup">
                             </div>
                             
-                            <!-- Rclone Config Base64 展示区域 (只读) -->
                             <div class="mb-3">
                                 <label class="form-label">Rclone Config Base64</label>
                                 {% if has_rclone_conf %}
