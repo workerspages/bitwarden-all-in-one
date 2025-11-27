@@ -13,8 +13,7 @@ LOG_FILE = "/var/log/backup.log"
 DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "admin")
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "admin")
 
-# 需要在面板中管理的变量
-# 【注意】已移除 RCLONE_CONF_BASE64，交由系统环境变量接管
+# 需要在面板中管理的变量 (注意：已移除 RCLONE_CONF_BASE64)
 MANAGED_KEYS = [
     "RCLONE_REMOTE", "BACKUP_CRON", 
     "BACKUP_FILENAME_PREFIX", "BACKUP_COMPRESSION", 
