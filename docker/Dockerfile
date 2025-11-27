@@ -26,6 +26,8 @@ COPY docker/backup.sh     /usr/local/bin/backup.sh
 COPY docker/restore.sh    /usr/local/bin/restore.sh
 RUN chmod +x /usr/local/bin/*.sh
 
+COPY docker/dashboard /app/dashboard 
+
 # 复制 Dashboard 代码
 COPY docker/dashboard /app/dashboard
 
