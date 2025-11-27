@@ -2,26 +2,38 @@ version: '3.8'
 
 services:
   vaultwarden:
-    image: ghcr.io/workerspages/vaultwarden-rclone:panel
+    image: ghcr.io/workerspages/vaultwarden-rclone:panel-2fa
     container_name: vaultwarden
     restart: always
     ports:
-      - "80:80"        # Vaultwarden 服务
-      - "5277:5277"    # Web 控制台面板
+      - "80:80"          # Vaultwarden 服务端口
+      - "5277:5277"      # Web 控制面板端口 (建议不要对公网开放)
     environment:
       - TZ=Asia/Shanghai
       
-      # --- Web 控制台登录凭证 ---
+      # --- Web 面板初始凭证 ---
       - DASHBOARD_USER=admin
-      - DASHBOARD_PASSWORD=admin
+      - DASHBOARD_PASSWORD=你的强密码
       
-      # --- 初始 Rclone 配置 (第一次运行时生效，后续可在面板修改) ---
-      - RCLONE_REMOTE=onedrive:/vaultwarden_backup
-      - RCLONE_CONF_BASE64=...
+      # --- Rclone 配置 (必须在此设置) ---
+      # 格式: <配置名称>:<路径>
+      - RCLONE_REMOTE=my-drive:/vaultwarden_backup
+      # 填入第 1 步生成的 Base64 字符串
+      - RCLONE_CONF_BASE64=W2ppYW5ndW95dW4teXVueHpoXQp0eXBlID0gd2ViZGF2Cn...
       
       # --- 备份策略 ---
-      - BACKUP_CRON=0 3 * * *
-      - BACKUP_RETAIN_DAYS=14
+      - BACKUP_CRON=0 3 * * *         # 每天凌晨 3 点备份
+      - BACKUP_COMPRESSION=gz         # 压缩格式: gz (推荐), zst, xz
       
+      # --- 保留策略 ---
+      - RETENTION_MODE=smart          # smart(智能), count(数量), days(天数)
+      - BACKUP_RETAIN_COUNT=30        # 仅在 count 模式生效
+      
+      # --- 通知 (可选) ---
+      - TELEGRAM_ENABLED=false
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
+
     volumes:
-      - ./vw-data:/data
+      - ./vw-data:/data   # Vaultwarden 数据卷
+      - ./vw-conf:/conf   # 面板配置卷 (一定要挂载这个!)
