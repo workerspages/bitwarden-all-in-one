@@ -16,6 +16,7 @@ RUN set -eux; \
     \
     # --- 安装 Python 库 (2FA 支持) --- \
     pip3 install pyotp qrcode --break-system-packages; \
+    pip3 install flask pyotp qrcode pillow --break-system-packages; \
     \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
