@@ -8,10 +8,10 @@ set -euo pipefail
 : "${TELEGRAM_CHAT_ID:=}"
 : "${RCLONE_REMOTE:=}"
 
-# 自动加载 rclone 配置 (同前)
+# 自动加载 rclone 配置 (同步修复)
 if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   mkdir -p /config/rclone
-  echo "${RCLONE_CONF_BASE64}" | base64 -d > /config/rclone/rclone.conf
+  echo "${RCLONE_CONF_BASE64}" | tr -d '\n\r ' | base64 -d > /config/rclone/rclone.conf
   export RCLONE_CONFIG="/config/rclone/rclone.conf"
 fi
 
