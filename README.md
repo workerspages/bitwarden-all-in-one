@@ -1,5 +1,5 @@
 
-# 🔐 Vaultwarden Rclone Backup & Dashboard
+# 🔐 Vaultwarden Rclone Backup & Dashboard & 2FA
 
 ![Docker Image Size](https://img.shields.io/docker/image-size/workerspages/vaultwarden-rclone/latest)
 ![Docker Pulls](https://img.shields.io/docker/pulls/workerspages/vaultwarden-rclone)
