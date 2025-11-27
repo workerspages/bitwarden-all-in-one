@@ -4,35 +4,37 @@ ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 ARG RCLONE_VERSION=v1.68.2
 
-# 安装依赖：增加了 python3, python3-flask, python3-pip, procps
+# 安装依赖
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       ca-certificates curl tzdata bash unzip jq zstd \
-      python3 python3-flask python3-pip procps; \
+      python3 python3-pip python3-setuptools procps; \
+    \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime; \
     echo $TZ > /etc/timezone; \
     dpkg-reconfigure --frontend noninteractive tzdata; \
     \
-    # --- 安装 Python 库 (2FA 支持) --- \
-    pip3 install pyotp qrcode --break-system-packages; \
+    pip3 install --upgrade pip --break-system-packages; \
     pip3 install flask pyotp qrcode pillow --break-system-packages; \
     \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
     \
-    # --- Rclone 安装 --- \
     curl -fsSL -O "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.zip"; \
     unzip "rclone-${RCLONE_VERSION}-linux-amd64.zip"; \
     mv "rclone-${RCLONE_VERSION}-linux-amd64/rclone" /usr/bin/rclone; \
     chmod +x /usr/bin/rclone; \
     rm -rf "rclone-${RCLONE_VERSION}-linux-amd64"* ; \
     \
-    # --- Supercronic 安装 --- \
     SUPERCRONIC_VERSION=0.2.30; \
     curl -fsSL -o /usr/local/bin/supercronic \
       "https://github.com/aptible/supercronic/releases/download/v${SUPERCRONIC_VERSION}/supercronic-linux-amd64"; \
-    chmod +x /usr/local/bin/supercronic
+    chmod +x /usr/local/bin/supercronic; \
+    \
+    # 创建独立的配置目录
+    mkdir -p /conf; \
+    chmod 777 /conf
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/backup.sh     /usr/local/bin/backup.sh
@@ -42,6 +44,7 @@ RUN chmod +x /usr/local/bin/*.sh
 COPY docker/dashboard /app/dashboard
 COPY docker/retention.py /app/dashboard/retention.py
 
+# 环境变量默认值
 ENV BACKUP_ENABLED=true \
     BACKUP_CRON="0 3 * * *" \
     BACKUP_SRC="/data" \
@@ -54,5 +57,8 @@ ENV BACKUP_ENABLED=true \
     RCLONE_FLAGS="--checksum --transfers=4 --checkers=8 --fast-list" \
     RESTORE_STRATEGY="replace" \
     DASHBOARD_PORT=5277
+
+# 声明两个卷
+VOLUME ["/data", "/conf"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
