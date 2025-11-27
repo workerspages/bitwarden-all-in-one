@@ -8,7 +8,7 @@ set -euo pipefail
 : "${TELEGRAM_CHAT_ID:=}"
 : "${RCLONE_REMOTE:=}"
 
-# 自动加载 rclone 配置 (修复 base64)
+# 自动加载 rclone 配置
 if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   mkdir -p /config/rclone
   echo "${RCLONE_CONF_BASE64}" | tr -d '\n\r ' | base64 -d > /config/rclone/rclone.conf
@@ -53,7 +53,7 @@ trap 'rm -rf "${work}"' EXIT
 local_archive=""
 remote_obj="${mode}"
 
-# --- 检查是否为本地文件 ---
+# --- 1. 获取还原包 ---
 if [[ -f "${mode}" ]]; then
   echo "📂 Detected local file input: ${mode}"
   local_archive="${mode}"
@@ -62,7 +62,6 @@ if [[ -f "${mode}" ]]; then
     exit 1
   fi
 else
-  # --- 从 Rclone 下载 ---
   fetch_latest() {
     if ! rclone lsjson "${RCLONE_REMOTE}" --files-only --fast-list >"${work}/ls.json" 2>/dev/null; then
       send_restore_error "Failed to list remote files in ${RCLONE_REMOTE}"
@@ -92,26 +91,32 @@ else
   fi
 fi
 
-# --- 备份当前数据 ---
-backup_before="${BACKUP_SRC%/}.pre-restore-$(date -u +%Y%m%d-%H%M%S)"
-echo "📦 Backing up current data to ${backup_before}..."
-# 使用 cp -a 备份，忽略可能的 socket/lock 文件错误
-if ! cp -a "${BACKUP_SRC}" "${backup_before}" 2>/dev/null; then
-  echo "⚠️ Warning: Some files could not be backed up (likely locked), proceeding anyway..."
+# --- 2. 保护当前的面板配置 (env.conf) ---
+CURRENT_CONF="/data/env.conf"
+TEMP_CONF_SAFE="/tmp/env.conf.safe"
+
+if [[ -f "$CURRENT_CONF" ]]; then
+    echo "🔒 Protecting dashboard configuration (2FA/Settings)..."
+    cp "$CURRENT_CONF" "$TEMP_CONF_SAFE"
 fi
 
-# 设置错误回滚 (如果解压失败)
+# --- 3. 备份当前数据 (Pre-restore backup) ---
+# 注意：这里备份是为了防止还原失败回滚用，所以会包含 env.conf
+backup_before="${BACKUP_SRC%/}.pre-restore-$(date -u +%Y%m%d-%H%M%S)"
+echo "📦 Backing up current state to ${backup_before}..."
+cp -a "${BACKUP_SRC}" "${backup_before}" 2>/dev/null || echo "⚠️ Warning: Some files locked, proceeding..."
+
 trap 'echo "⚠️ Restore failed! Rolling back..."; cp -af "${backup_before}/." "${BACKUP_SRC}/"; rm -rf "${work}"' ERR
 
-# --- 核心修复：宽容清理 ---
+# --- 4. 清理旧数据 ---
 if [[ "${RESTORE_STRATEGY}" == "replace" ]]; then
   echo "🧹 Cleaning existing data..."
-  # 关键修改：后面加了 || true，忽略 .nfs 等无法删除的文件报错
+  # 忽略可能的文件锁错误
   find "${BACKUP_SRC}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 fi
 
+# --- 5. 解压还原 ---
 echo "🔓 Extracting archive..."
-# 增加 --overwrite 选项确保覆盖锁定的文件（如果 tar 支持），标准 tar 默认就是覆盖
 case "${local_archive}" in
   *.tar.gz|*.tgz)    tar -xzf "${local_archive}" -C "${BACKUP_SRC}" ;;
   *.tar.zst|*.tzst)  tar -I zstd -xf "${local_archive}" -C "${BACKUP_SRC}" ;;
@@ -122,15 +127,18 @@ case "${local_archive}" in
   *)                 tar -xf  "${local_archive}" -C "${BACKUP_SRC}" ;;
 esac
 
-# 成功后移除 trap
+# --- 6. 恢复受保护的面板配置 ---
+if [[ -f "$TEMP_CONF_SAFE" ]]; then
+    echo "🔧 Restoring dashboard configuration..."
+    # 强制覆盖，确保使用还原前的最新配置
+    cp -f "$TEMP_CONF_SAFE" "$CURRENT_CONF"
+    rm -f "$TEMP_CONF_SAFE"
+fi
+
 trap 'rm -rf "${work}"' EXIT
 
-echo "✅ Restore data placed. Previous data saved at: ${backup_before}"
+echo "✅ Restore complete. Configuration preserved."
 send_restore_success
 
-# --- 核心修复：重启容器 ---
-# 必须杀掉 vaultwarden 进程，让 Docker/Zeabur 自动重启容器。
-# 只有重启才能释放旧的数据库锁并加载刚才还原的数据。
 echo "🔄 Killing Vaultwarden process to force container restart..."
 pkill -f vaultwarden || true
-# 脚本到此结束，容器随后会重启
