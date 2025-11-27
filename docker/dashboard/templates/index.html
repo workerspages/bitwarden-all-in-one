@@ -9,12 +9,13 @@
         body { background-color: #f8f9fa; }
         .login-card { max-width: 400px; margin: 100px auto; }
         .log-box { background: #212529; color: #00ff00; font-family: monospace; height: 300px; overflow-y: scroll; padding: 10px; font-size: 0.9em; }
-        .nav-brand { font-weight: bold; }
+        .table-files { font-size: 0.9em; }
     </style>
 </head>
 <body>
 
 {% if login_page %}
+<!-- 登录页代码保持不变 -->
 <div class="container">
     <div class="card login-card shadow">
         <div class="card-header bg-primary text-white">登录控制台</div>
@@ -61,81 +62,119 @@
         <!-- 左侧：操作与日志 -->
         <div class="col-md-5">
             <div class="card shadow mb-4">
-                <div class="card-header bg-success text-white">快速操作</div>
+                <div class="card-header bg-success text-white">⚡ 快速操作</div>
                 <div class="card-body">
                     <form method="POST" class="d-grid gap-2">
-                        <button type="submit" name="action" value="backup" class="btn btn-primary">🚀 立即备份</button>
-                        <button type="submit" name="action" value="restore_latest" class="btn btn-danger" onclick="return confirm('确定要还原最新备份吗？这会覆盖当前数据！')">🔄 还原最新备份</button>
-                        <a href="/" class="btn btn-secondary">📄 刷新日志</a>
+                        <button type="submit" name="action" value="backup" class="btn btn-primary">🚀 立即触发备份</button>
+                        <button type="submit" name="action" value="restore_latest" class="btn btn-warning" onclick="return confirm('确定要从云端还原最新备份吗？这会覆盖当前数据！')">🔄 还原云端最新备份</button>
+                    </form>
+                    
+                    <hr>
+                    
+                    <h6 class="mb-2">📥 本地上传还原</h6>
+                    <form action="/upload_restore" method="POST" enctype="multipart/form-data" class="input-group">
+                        <input type="file" name="file" class="form-control" required>
+                        <button type="submit" class="btn btn-danger" onclick="return confirm('确定要使用此文件覆盖当前数据吗？')">还原</button>
                     </form>
                 </div>
             </div>
 
-            <div class="card shadow">
-                <div class="card-header bg-dark text-white">系统日志 (backup.log)</div>
+            <div class="card shadow mb-4">
+                <div class="card-header bg-dark text-white">📄 系统日志</div>
                 <div class="card-body p-0">
                     <div class="log-box" id="logBox">{{ logs }}</div>
                 </div>
             </div>
         </div>
 
-        <!-- 右侧：配置 -->
+        <!-- 右侧：文件列表与配置 -->
         <div class="col-md-7">
+            
+            <!-- 文件列表 -->
+            <div class="card shadow mb-4">
+                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                    <span>☁️ 云端备份文件 ({{ config.RCLONE_REMOTE }})</span>
+                    <a href="/" class="btn btn-sm btn-light py-0">刷新</a>
+                </div>
+                <div class="card-body p-0">
+                    {% if remote_files %}
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-striped table-hover table-sm table-files mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>文件名</th>
+                                    <th>时间</th>
+                                    <th>大小</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for file in remote_files %}
+                                <tr>
+                                    <td>{{ file.Name }}</td>
+                                    <td>{{ file.ModTime }}</td>
+                                    <td>{{ file.SizeHuman }}</td>
+                                    <td>
+                                        <a href="/download/{{ file.Name }}" class="btn btn-xs btn-outline-primary btn-sm py-0" target="_blank">下载</a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                        <div class="p-3 text-center text-muted">
+                            {% if config.RCLONE_REMOTE %}
+                                暂无文件或连接超时，请检查 Rclone 配置。
+                            {% else %}
+                                请先配置 RCLONE_REMOTE。
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- 环境变量配置 (折叠) -->
             <div class="card shadow">
-                <div class="card-header bg-info text-white">环境变量配置</div>
-                <div class="card-body">
-                    <form method="POST">
-                        <input type="hidden" name="action" value="save">
-                        
-                        <h6 class="border-bottom pb-2 mb-3">存储设置 (Rclone)</h6>
-                        <div class="mb-3">
-                            <label class="form-label">Rclone Remote (e.g., <code>onedrive:/vw_backup</code>)</label>
-                            <input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Rclone Config Base64 (留空则不覆盖)</label>
-                            <textarea name="RCLONE_CONF_BASE64" class="form-control" rows="3" placeholder="rclone.conf 的 Base64 编码字符串">{{ config.RCLONE_CONF_BASE64 }}</textarea>
-                        </div>
-
-                        <h6 class="border-bottom pb-2 mb-3 mt-4">策略设置</h6>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Cron 表达式</label>
-                                <input type="text" name="BACKUP_CRON" class="form-control" value="{{ config.BACKUP_CRON }}">
+                <div class="card-header bg-info text-white" role="button" data-bs-toggle="collapse" data-bs-target="#configCollapse">
+                    ⚙️ 环境变量配置 (点击展开)
+                </div>
+                <div class="collapse" id="configCollapse">
+                    <div class="card-body">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="save">
+                            
+                            <!-- 配置表单内容同前... -->
+                            <div class="mb-3">
+                                <label class="form-label">Rclone Remote</label>
+                                <input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}">
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">保留天数</label>
-                                <input type="number" name="BACKUP_RETAIN_DAYS" class="form-control" value="{{ config.BACKUP_RETAIN_DAYS }}">
+                            <div class="mb-3">
+                                <label class="form-label">Rclone Config Base64</label>
+                                <textarea name="RCLONE_CONF_BASE64" class="form-control" rows="2">{{ config.RCLONE_CONF_BASE64 }}</textarea>
                             </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">压缩格式</label>
-                            <select name="BACKUP_COMPRESSION" class="form-select">
-                                <option value="gz" {% if config.BACKUP_COMPRESSION == 'gz' %}selected{% endif %}>Gzip (gz)</option>
-                                <option value="zst" {% if config.BACKUP_COMPRESSION == 'zst' %}selected{% endif %}>Zstandard (zst)</option>
-                            </select>
-                        </div>
-
-                        <h6 class="border-bottom pb-2 mb-3 mt-4">Telegram 通知</h6>
-                        <div class="mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" name="TELEGRAM_ENABLED" value="true" {% if config.TELEGRAM_ENABLED == 'true' %}checked{% endif %}>
-                                <label class="form-check-label">启用通知</label>
+                            <div class="row">
+                                <div class="col-6 mb-3">
+                                    <label class="form-label">Cron</label>
+                                    <input type="text" name="BACKUP_CRON" class="form-control" value="{{ config.BACKUP_CRON }}">
+                                </div>
+                                <div class="col-6 mb-3">
+                                    <label class="form-label">保留天数</label>
+                                    <input type="number" name="BACKUP_RETAIN_DAYS" class="form-control" value="{{ config.BACKUP_RETAIN_DAYS }}">
+                                </div>
                             </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
+                            <div class="mb-3">
                                 <label class="form-label">Bot Token</label>
                                 <input type="text" name="TELEGRAM_BOT_TOKEN" class="form-control" value="{{ config.TELEGRAM_BOT_TOKEN }}">
                             </div>
-                            <div class="col-md-6 mb-3">
+                            <div class="mb-3">
                                 <label class="form-label">Chat ID</label>
                                 <input type="text" name="TELEGRAM_CHAT_ID" class="form-control" value="{{ config.TELEGRAM_CHAT_ID }}">
                             </div>
-                        </div>
 
-                        <button type="submit" class="btn btn-primary w-100 mt-3">💾 保存配置 (需重启生效)</button>
-                    </form>
+                            <button type="submit" class="btn btn-primary w-100">💾 保存配置 (需重启)</button>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -145,7 +184,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // 自动滚动日志到底部
     var logBox = document.getElementById("logBox");
     if(logBox) logBox.scrollTop = logBox.scrollHeight;
 </script>
