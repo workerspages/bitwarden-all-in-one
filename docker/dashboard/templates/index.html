@@ -10,12 +10,12 @@
         .login-card { max-width: 400px; margin: 100px auto; }
         .log-box { background: #212529; color: #00ff00; font-family: monospace; height: 300px; overflow-y: scroll; padding: 10px; font-size: 0.9em; }
         .table-files { font-size: 0.9em; }
+        .nav-brand { font-weight: bold; }
     </style>
 </head>
 <body>
 
 {% if login_page %}
-<!-- 登录页代码保持不变 -->
 <div class="container">
     <div class="card login-card shadow">
         <div class="card-header bg-primary text-white">登录控制台</div>
@@ -134,45 +134,83 @@
                 </div>
             </div>
 
-            <!-- 环境变量配置 (折叠) -->
+            <!-- 环境变量配置 -->
             <div class="card shadow">
                 <div class="card-header bg-info text-white" role="button" data-bs-toggle="collapse" data-bs-target="#configCollapse">
                     ⚙️ 环境变量配置 (点击展开)
                 </div>
-                <div class="collapse" id="configCollapse">
+                <div class="collapse show" id="configCollapse">
                     <div class="card-body">
                         <form method="POST">
                             <input type="hidden" name="action" value="save">
                             
-                            <!-- 配置表单内容同前... -->
+                            <h6 class="border-bottom pb-2 mb-3">存储与压缩</h6>
                             <div class="mb-3">
                                 <label class="form-label">Rclone Remote</label>
-                                <input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}">
+                                <input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}" placeholder="onedrive:/backup">
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Rclone Config Base64</label>
-                                <textarea name="RCLONE_CONF_BASE64" class="form-control" rows="2">{{ config.RCLONE_CONF_BASE64 }}</textarea>
+                                <label class="form-label">Rclone Config Base64 (留空不覆盖)</label>
+                                <textarea name="RCLONE_CONF_BASE64" class="form-control" rows="2" placeholder="eyJ..."></textarea>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Cron 表达式</label>
+                                    <input type="text" name="BACKUP_CRON" class="form-control" value="{{ config.BACKUP_CRON }}">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">压缩格式</label>
+                                    <select name="BACKUP_COMPRESSION" class="form-select">
+                                        <option value="gz" {% if config.BACKUP_COMPRESSION == 'gz' %}selected{% endif %}>Gzip (gz)</option>
+                                        <option value="zst" {% if config.BACKUP_COMPRESSION == 'zst' %}selected{% endif %}>Zstandard (zst)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <h6 class="border-bottom pb-2 mb-3 mt-3">🗑️ 备份保留策略</h6>
+                            <div class="mb-3">
+                                <select name="RETENTION_MODE" id="retentionMode" class="form-select" onchange="updateRetentionUI()">
+                                    <option value="smart" {% if config.RETENTION_MODE == 'smart' %}selected{% endif %}>🧠 智能备份保留策略 (GFS)</option>
+                                    <option value="days" {% if config.RETENTION_MODE == 'days' %}selected{% endif %}>📅 删除早于指定日期的备份</option>
+                                    <option value="count" {% if config.RETENTION_MODE == 'count' %}selected{% endif %}>🔢 保留指定数目的备份</option>
+                                    <option value="forever" {% if config.RETENTION_MODE == 'forever' %}selected{% endif %}>♾️ 永久保留备份</option>
+                                </select>
+                            </div>
+                            
+                            <!-- 动态说明与输入 -->
+                            <div class="alert alert-light border small text-muted mb-3" id="desc-smart" style="display:none;">
+                                随着时间推移，备份将被自动清理。系统将保留：<br>
+                                • 最近 <strong>7 天</strong> 中每天一份<br>
+                                • 最近 <strong>4 周</strong> 中每周一份<br>
+                                • 最近 <strong>12 个月</strong> 中每月一份<br>
+                                同时，保证总是至少存在一个最新的备份。
+                            </div>
+                            
+                            <div class="mb-3" id="input-days" style="display:none;">
+                                <label class="form-label">保留天数</label>
+                                <input type="number" name="BACKUP_RETAIN_DAYS" class="form-control" value="{{ config.BACKUP_RETAIN_DAYS }}">
+                            </div>
+                            
+                            <div class="mb-3" id="input-count" style="display:none;">
+                                <label class="form-label">保留数量</label>
+                                <input type="number" name="BACKUP_RETAIN_COUNT" class="form-control" value="{{ config.BACKUP_RETAIN_COUNT }}">
+                            </div>
+
+                            <h6 class="border-bottom pb-2 mb-3 mt-3">Telegram 通知</h6>
+                            <div class="mb-3 form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="TELEGRAM_ENABLED" value="true" {% if config.TELEGRAM_ENABLED == 'true' %}checked{% endif %}>
+                                <label class="form-check-label">启用通知</label>
                             </div>
                             <div class="row">
                                 <div class="col-6 mb-3">
-                                    <label class="form-label">Cron</label>
-                                    <input type="text" name="BACKUP_CRON" class="form-control" value="{{ config.BACKUP_CRON }}">
+                                    <input type="text" name="TELEGRAM_BOT_TOKEN" class="form-control" placeholder="Bot Token" value="{{ config.TELEGRAM_BOT_TOKEN }}">
                                 </div>
                                 <div class="col-6 mb-3">
-                                    <label class="form-label">保留天数</label>
-                                    <input type="number" name="BACKUP_RETAIN_DAYS" class="form-control" value="{{ config.BACKUP_RETAIN_DAYS }}">
+                                    <input type="text" name="TELEGRAM_CHAT_ID" class="form-control" placeholder="Chat ID" value="{{ config.TELEGRAM_CHAT_ID }}">
                                 </div>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label">Bot Token</label>
-                                <input type="text" name="TELEGRAM_BOT_TOKEN" class="form-control" value="{{ config.TELEGRAM_BOT_TOKEN }}">
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Chat ID</label>
-                                <input type="text" name="TELEGRAM_CHAT_ID" class="form-control" value="{{ config.TELEGRAM_CHAT_ID }}">
-                            </div>
 
-                            <button type="submit" class="btn btn-primary w-100">💾 保存配置 (需重启)</button>
+                            <button type="submit" class="btn btn-primary w-100 mt-2">💾 保存配置 (需重启生效)</button>
                         </form>
                     </div>
                 </div>
@@ -186,6 +224,15 @@
 <script>
     var logBox = document.getElementById("logBox");
     if(logBox) logBox.scrollTop = logBox.scrollHeight;
+
+    function updateRetentionUI() {
+        var mode = document.getElementById("retentionMode").value;
+        document.getElementById("desc-smart").style.display = (mode === 'smart') ? 'block' : 'none';
+        document.getElementById("input-days").style.display = (mode === 'days') ? 'block' : 'none';
+        document.getElementById("input-count").style.display = (mode === 'count') ? 'block' : 'none';
+    }
+    // 初始化
+    updateRetentionUI();
 </script>
 </body>
 </html>
