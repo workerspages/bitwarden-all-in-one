@@ -13,7 +13,6 @@ LOG_FILE = "/var/log/backup.log"
 DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "admin")
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "admin")
 
-# 需要在面板中管理的变量 (注意：已移除 RCLONE_CONF_BASE64)
 MANAGED_KEYS = [
     "RCLONE_REMOTE", "BACKUP_CRON", 
     "BACKUP_FILENAME_PREFIX", "BACKUP_COMPRESSION", 
@@ -22,7 +21,6 @@ MANAGED_KEYS = [
 ]
 
 def load_env_file():
-    """读取配置文件"""
     env_vars = {}
     if os.path.exists(CONF_FILE):
         with open(CONF_FILE, 'r') as f:
@@ -34,11 +32,9 @@ def load_env_file():
     return env_vars
 
 def save_env_file(form_data):
-    """保存配置"""
     lines = []
     for key in MANAGED_KEYS:
         new_val = form_data.get(key)
-        # 允许写入空值，并进行转义
         val = new_val if new_val is not None else ""
         safe_val = val.replace('"', '\\"')
         lines.append(f'{key}="{safe_val}"')
@@ -47,7 +43,6 @@ def save_env_file(form_data):
         f.write("\n".join(lines) + "\n")
 
 def get_remote_files():
-    # 获取 Remote 地址：优先文件，其次环境
     file_vars = load_env_file()
     remote = file_vars.get("RCLONE_REMOTE")
     if not remote: 
@@ -56,13 +51,10 @@ def get_remote_files():
     if not remote:
         return []
     try:
-        # 获取 JSON 格式的文件列表
         cmd = ["rclone", "lsjson", remote, "--files-only", "--no-mimetype"]
         result = subprocess.check_output(cmd, timeout=15)
         files = json.loads(result)
-        # 按时间倒序排列
         files.sort(key=lambda x: x.get("ModTime", ""), reverse=True)
-        # 格式化大小
         for f in files:
             size = f.get("Size", 0)
             f["SizeHuman"] = f"{size / 1024 / 1024:.2f} MB"
@@ -86,6 +78,26 @@ def login():
 def logout():
     session.pop('logged_in', None)
     return redirect(url_for('login'))
+
+# --- 新增：还原指定文件 ---
+@app.route('/restore_file', methods=['POST'])
+def restore_file():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+        
+    filename = request.form.get('filename')
+    if not filename:
+        flash("未指定文件名", "danger")
+        return redirect(url_for('index'))
+        
+    # 为了安全，防止命令注入，只允许特定字符
+    filename = secure_filename(filename)
+    
+    # 异步调用 restore.sh
+    subprocess.Popen(["/usr/local/bin/restore.sh", filename], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    flash(f'正在从云端还原文件：{filename}，请关注下方日志。', 'warning')
+    return redirect(url_for('index'))
 
 @app.route('/download/<path:filename>')
 def download_file(filename):
@@ -162,19 +174,15 @@ def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
-    # 读取逻辑：文件优先，环境垫底
     file_vars = load_env_file()
     current_vars = {}
     
     for key in MANAGED_KEYS:
-        # 1. 尝试从文件获取
         val = file_vars.get(key)
-        # 2. 如果文件中没有，则使用环境变量
         if val is None:
             val = os.environ.get(key, "")
         current_vars[key] = val
 
-    # 检查是否配置了 Config Base64 (仅用于前端显示状态)
     has_rclone_conf = "RCLONE_CONF_BASE64" in os.environ and len(os.environ["RCLONE_CONF_BASE64"]) > 10
 
     if request.method == 'POST':
