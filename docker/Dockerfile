@@ -20,16 +20,18 @@ RUN set -eux; \
       "https://github.com/aptible/supercronic/releases/download/v${SUPERCRONIC_VERSION}/supercronic-linux-amd64"; \
     chmod +x /usr/local/bin/supercronic
 
-# 复制脚本
+# 复制 Shell 脚本
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/backup.sh     /usr/local/bin/backup.sh
 COPY docker/restore.sh    /usr/local/bin/restore.sh
 RUN chmod +x /usr/local/bin/*.sh
 
-COPY docker/dashboard /app/dashboard 
-
 # 复制 Dashboard 代码
 COPY docker/dashboard /app/dashboard
+
+# 关键：将 retention.py 复制到 /app/dashboard/ 目录
+# 这样 backup.sh 里的 python3 /app/dashboard/retention.py 才能找到它
+COPY docker/retention.py /app/dashboard/retention.py
 
 # 环境变量默认值
 ENV BACKUP_ENABLED=true \
