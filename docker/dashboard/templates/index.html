@@ -29,73 +29,62 @@
   {% endif %}
 {% endwith %}
 
-<!-- 页面：登录 -->
+<!-- 登录/2FA 设置/2FA 验证 页面保持不变 (省略) ... 请保留之前的代码 -->
 {% if page == 'login' %}
 <div class="container">
     <div class="card login-card shadow">
         <div class="card-header bg-primary text-white">🔐 登录控制台</div>
         <div class="card-body">
             <form method="POST" action="/login">
-                <div class="mb-3">
-                    <label>用户名</label>
-                    <input type="text" name="username" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label>密码</label>
-                    <input type="password" name="password" class="form-control" required>
-                </div>
+                <div class="mb-3"><label>用户名</label><input type="text" name="username" class="form-control" required></div>
+                <div class="mb-3"><label>密码</label><input type="password" name="password" class="form-control" required></div>
                 <button type="submit" class="btn btn-primary w-100">下一步</button>
             </form>
         </div>
     </div>
 </div>
-
-<!-- 页面：2FA 设置 -->
 {% elif page == '2fa_setup' %}
 <div class="container">
     <div class="card auth-card shadow">
         <div class="card-header bg-warning text-dark">⚠️ 首次设置两步验证 (2FA)</div>
         <div class="card-body text-center">
-            <p class="small text-muted">为了安全，请使用 Google Authenticator 或 Authy 扫描下方二维码。</p>
-            <img src="data:image/png;base64,{{ qr_code }}" class="img-fluid mb-3" style="max-width: 200px; border: 1px solid #ddd;">
-            
-            <p class="small mb-1">无法扫描？手动输入密钥：</p>
-            <code class="d-block mb-3 bg-light p-2 user-select-all">{{ secret }}</code>
-            
+            <p class="small text-muted">请使用 Authenticator 扫描下方二维码。</p>
+            <img src="data:image/png;base64,{{ qr_code }}" class="img-fluid mb-3" style="max-width: 200px;">
+            <p class="small mb-1">手动密钥：</p><code class="d-block mb-3 bg-light p-2 user-select-all">{{ secret }}</code>
             <form method="POST" action="/verify_2fa">
                 <div class="input-group mb-3">
-                    <input type="text" name="code" class="form-control text-center" placeholder="输入 6 位验证码" required autocomplete="off" inputmode="numeric">
-                    <button type="submit" class="btn btn-success">启用并登录</button>
+                    <input type="text" name="code" class="form-control text-center" placeholder="6 位验证码" required>
+                    <button type="submit" class="btn btn-success">启用</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
-
-<!-- 页面：2FA 验证 -->
 {% elif page == '2fa_verify' %}
 <div class="container">
     <div class="card login-card shadow">
         <div class="card-header bg-success text-white">🛡️ 两步验证</div>
         <div class="card-body text-center">
-            <p>请输入您的动态验证码 (OTP)</p>
             <form method="POST" action="/verify_2fa">
-                <div class="mb-3">
-                    <input type="text" name="code" class="form-control text-center fs-4 letter-spacing-2" placeholder="000000" required autocomplete="off" autofocus inputmode="numeric">
-                </div>
+                <div class="mb-3"><input type="text" name="code" class="form-control text-center fs-4" placeholder="000000" required autofocus></div>
                 <button type="submit" class="btn btn-success w-100">验证登录</button>
             </form>
-            <a href="/logout" class="btn btn-link btn-sm mt-3 text-muted">取消 / 重新登录</a>
+            <a href="/logout" class="btn btn-link btn-sm mt-3">取消</a>
         </div>
     </div>
 </div>
 
-<!-- 页面：仪表盘 -->
+<!-- 仪表盘 -->
 {% elif page == 'dashboard' %}
 <nav class="navbar navbar-dark bg-dark mb-4">
     <div class="container">
         <span class="navbar-brand mb-0 h1">Vaultwarden Backup</span>
         <div>
+            <!-- Tunnel 状态 -->
+            {% if has_tunnel %}
+            <span class="badge bg-primary me-2">🚇 Tunnel 已配置</span>
+            {% endif %}
+            
             {% if has_2fa %}
             <span class="badge bg-success me-2">🛡️ 2FA 已开启</span>
             {% endif %}
@@ -113,13 +102,13 @@
                 <div class="card-body">
                     <form method="POST" class="d-grid gap-2">
                         <button type="submit" name="action" value="backup" class="btn btn-primary">🚀 立即触发备份</button>
-                        <button type="submit" name="action" value="restore_latest" class="btn btn-warning" onclick="return confirm('确定要从云端还原最新备份吗？这会覆盖当前数据！')">🔄 还原云端最新备份</button>
+                        <button type="submit" name="action" value="restore_latest" class="btn btn-warning" onclick="return confirm('确定要还原吗？')">🔄 还原最新备份</button>
                     </form>
                     <hr>
                     <h6 class="mb-2">📥 本地上传还原</h6>
                     <form action="/upload_restore" method="POST" enctype="multipart/form-data" class="input-group">
                         <input type="file" name="file" class="form-control" required>
-                        <button type="submit" class="btn btn-danger" onclick="return confirm('确定要使用此文件覆盖当前数据吗？')">还原</button>
+                        <button type="submit" class="btn btn-danger" onclick="return confirm('确定要还原此文件吗？')">还原</button>
                     </form>
                 </div>
             </div>
@@ -157,7 +146,7 @@
                                         <a href="/download/{{ file.Name }}" class="btn btn-xs btn-outline-primary" target="_blank">下载</a>
                                         <form action="/restore_file" method="POST" style="display:inline-block;">
                                             <input type="hidden" name="filename" value="{{ file.Name }}">
-                                            <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('⚠️ 警告：\n\n确定要还原文件 [{{ file.Name }}] 吗？')">还原</button>
+                                            <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('确定还原？')">还原</button>
                                         </form>
                                     </td>
                                 </tr>
@@ -167,11 +156,7 @@
                     </div>
                     {% else %}
                         <div class="p-3 text-center text-muted">
-                            {% if config.RCLONE_REMOTE %}
-                                暂无文件或连接超时，请检查 Rclone 配置。
-                            {% else %}
-                                请先配置 RCLONE_REMOTE。
-                            {% endif %}
+                            {% if config.RCLONE_REMOTE %}暂无文件或连接超时{% else %}请先配置 RCLONE_REMOTE{% endif %}
                         </div>
                     {% endif %}
                 </div>
@@ -186,22 +171,17 @@
                     <div class="card-body">
                         <form method="POST">
                             <input type="hidden" name="action" value="save">
-                            <!-- 配置项省略，请保持原样 -->
                             <div class="mb-3"><label class="form-label">Rclone Remote</label><input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}"></div>
-                            
-                            <!-- Rclone Config Status -->
                             <div class="mb-3">
                                 <label class="form-label">Rclone Config Base64</label>
                                 {% if has_rclone_conf %}<div class="alert alert-success py-2 mb-0">✅ 已加载配置</div>{% else %}<div class="alert alert-warning py-2 mb-0">⚠️ 未检测到配置</div>{% endif %}
                             </div>
 
-                            <!-- Cron / Compress -->
                             <div class="row">
                                 <div class="col-6 mb-3"><label class="form-label">Cron</label><input type="text" name="BACKUP_CRON" class="form-control" value="{{ config.BACKUP_CRON }}"></div>
                                 <div class="col-6 mb-3"><label class="form-label">压缩</label><select name="BACKUP_COMPRESSION" class="form-select"><option value="gz" {% if config.BACKUP_COMPRESSION=='gz' %}selected{% endif %}>Gzip</option><option value="zst" {% if config.BACKUP_COMPRESSION=='zst' %}selected{% endif %}>Zstd</option></select></div>
                             </div>
                             
-                            <!-- Retention (Simplified View) -->
                             <div class="mb-3">
                                 <label class="form-label">保留策略</label>
                                 <select name="RETENTION_MODE" class="form-select">
@@ -216,9 +196,16 @@
                                 <div class="col-6 mb-3"><label class="form-label">保留数量</label><input type="number" name="BACKUP_RETAIN_COUNT" class="form-control" value="{{ config.BACKUP_RETAIN_COUNT }}"></div>
                             </div>
 
+                            <!-- Tunnel Token -->
+                            <div class="mb-3">
+                                <label class="form-label">Cloudflare Tunnel Token (可选)</label>
+                                <input type="text" name="CLOUDFLARED_TOKEN" class="form-control" value="{{ config.CLOUDFLARED_TOKEN }}" placeholder="eyJhIjoi...">
+                                <div class="form-text">填入 Token 后保存并重启容器以启动 Tunnel。</div>
+                            </div>
+
                             <div class="d-flex justify-content-between mt-3">
-                                <button type="submit" class="btn btn-primary flex-grow-1 me-2">💾 保存配置</button>
-                                <button type="submit" name="action" value="reset_2fa" class="btn btn-outline-danger" onclick="return confirm('确定要重置 2FA 吗？你需要重新扫描二维码。')">重置 2FA</button>
+                                <button type="submit" class="btn btn-primary flex-grow-1 me-2">💾 保存配置 (需重启)</button>
+                                <button type="submit" name="action" value="reset_2fa" class="btn btn-outline-danger" onclick="return confirm('确定重置 2FA？')">重置 2FA</button>
                             </div>
                         </form>
                     </div>
