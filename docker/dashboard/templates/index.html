@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vaultwarden Backup 控制台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .login-card { max-width: 400px; margin: 100px auto; }
+        .log-box { background: #212529; color: #00ff00; font-family: monospace; height: 300px; overflow-y: scroll; padding: 10px; font-size: 0.9em; }
+        .nav-brand { font-weight: bold; }
+    </style>
+</head>
+<body>
+
+{% if login_page %}
+<div class="container">
+    <div class="card login-card shadow">
+        <div class="card-header bg-primary text-white">登录控制台</div>
+        <div class="card-body">
+            {% with messages = get_flashed_messages() %}
+              {% if messages %}<div class="alert alert-danger">{{ messages[0] }}</div>{% endif %}
+            {% endwith %}
+            <form method="POST">
+                <div class="mb-3">
+                    <label>用户名</label>
+                    <input type="text" name="username" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label>密码</label>
+                    <input type="password" name="password" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">登录</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% else %}
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container">
+        <span class="navbar-brand mb-0 h1">Vaultwarden Backup Dashboard</span>
+        <a href="/logout" class="btn btn-outline-light btn-sm">退出</a>
+    </div>
+</nav>
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="row">
+        <!-- 左侧：操作与日志 -->
+        <div class="col-md-5">
+            <div class="card shadow mb-4">
+                <div class="card-header bg-success text-white">快速操作</div>
+                <div class="card-body">
+                    <form method="POST" class="d-grid gap-2">
+                        <button type="submit" name="action" value="backup" class="btn btn-primary">🚀 立即备份</button>
+                        <button type="submit" name="action" value="restore_latest" class="btn btn-danger" onclick="return confirm('确定要还原最新备份吗？这会覆盖当前数据！')">🔄 还原最新备份</button>
+                        <a href="/" class="btn btn-secondary">📄 刷新日志</a>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow">
+                <div class="card-header bg-dark text-white">系统日志 (backup.log)</div>
+                <div class="card-body p-0">
+                    <div class="log-box" id="logBox">{{ logs }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：配置 -->
+        <div class="col-md-7">
+            <div class="card shadow">
+                <div class="card-header bg-info text-white">环境变量配置</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="save">
+                        
+                        <h6 class="border-bottom pb-2 mb-3">存储设置 (Rclone)</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Rclone Remote (e.g., <code>onedrive:/vw_backup</code>)</label>
+                            <input type="text" name="RCLONE_REMOTE" class="form-control" value="{{ config.RCLONE_REMOTE }}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Rclone Config Base64 (留空则不覆盖)</label>
+                            <textarea name="RCLONE_CONF_BASE64" class="form-control" rows="3" placeholder="rclone.conf 的 Base64 编码字符串">{{ config.RCLONE_CONF_BASE64 }}</textarea>
+                        </div>
+
+                        <h6 class="border-bottom pb-2 mb-3 mt-4">策略设置</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Cron 表达式</label>
+                                <input type="text" name="BACKUP_CRON" class="form-control" value="{{ config.BACKUP_CRON }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">保留天数</label>
+                                <input type="number" name="BACKUP_RETAIN_DAYS" class="form-control" value="{{ config.BACKUP_RETAIN_DAYS }}">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">压缩格式</label>
+                            <select name="BACKUP_COMPRESSION" class="form-select">
+                                <option value="gz" {% if config.BACKUP_COMPRESSION == 'gz' %}selected{% endif %}>Gzip (gz)</option>
+                                <option value="zst" {% if config.BACKUP_COMPRESSION == 'zst' %}selected{% endif %}>Zstandard (zst)</option>
+                            </select>
+                        </div>
+
+                        <h6 class="border-bottom pb-2 mb-3 mt-4">Telegram 通知</h6>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="TELEGRAM_ENABLED" value="true" {% if config.TELEGRAM_ENABLED == 'true' %}checked{% endif %}>
+                                <label class="form-check-label">启用通知</label>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Bot Token</label>
+                                <input type="text" name="TELEGRAM_BOT_TOKEN" class="form-control" value="{{ config.TELEGRAM_BOT_TOKEN }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Chat ID</label>
+                                <input type="text" name="TELEGRAM_CHAT_ID" class="form-control" value="{{ config.TELEGRAM_CHAT_ID }}">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100 mt-3">💾 保存配置 (需重启生效)</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // 自动滚动日志到底部
+    var logBox = document.getElementById("logBox");
+    if(logBox) logBox.scrollTop = logBox.scrollHeight;
+</script>
+</body>
+</html>
