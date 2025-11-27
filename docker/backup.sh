@@ -10,18 +10,15 @@ set -euo pipefail
 : "${TELEGRAM_BOT_TOKEN:=}"
 : "${TELEGRAM_CHAT_ID:=}"
 : "${TEST_MODE:=false}"
-# 策略相关变量默认值
 : "${RETENTION_MODE:=smart}"
 : "${BACKUP_RETAIN_DAYS:=14}"
 : "${BACKUP_RETAIN_COUNT:=30}"
-
-# 自定义链接（生产环境设置你的云盘/面板 URL；无需链接设为空 ""）
 : "${RCLONE_VIEW_URL:=}"
 
 # 自动加载 rclone 配置
 if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   mkdir -p /config/rclone
-  # 关键修复：使用 tr 删除可能存在的换行符、回车和空格，防止 base64 解码失败
+  # 使用 tr 删除可能存在的换行符和空格，防止 base64 解码失败
   echo "${RCLONE_CONF_BASE64}" | tr -d '\n\r ' | base64 -d > /config/rclone/rclone.conf
   export RCLONE_CONFIG="/config/rclone/rclone.conf"
 fi
@@ -79,7 +76,6 @@ send_telegram_success() {
     remote_link=$(printf '<a href="%s">%s</a>' "${RCLONE_VIEW_URL}" "${RCLONE_REMOTE}")
   fi
   
-  # 获取清理策略描述
   local policy_desc="未知"
   case "${RETENTION_MODE}" in
     smart) policy_desc="智能策略 (7天/4周/12月)";;
@@ -106,8 +102,7 @@ send_telegram_success() {
 
 # 测试模式
 if [[ "${TEST_MODE}" == "true" ]]; then
-  send_telegram_error "Test error with special chars: * & < > \" '"
-  send_telegram_success "10.5 MB"
+  send_telegram_error "Test error"
   exit 0
 fi
 
@@ -143,15 +138,12 @@ fi
 cleanup_error=""
 if [[ -z "${error_msg}" ]]; then
   echo "🧹 Running cleanup strategy: ${RETENTION_MODE}..."
-  
-  # 导出环境变量供 Python 脚本使用
   export RCLONE_REMOTE
   export BACKUP_FILENAME_PREFIX
   export RETENTION_MODE
   export BACKUP_RETAIN_DAYS
   export BACKUP_RETAIN_COUNT
   
-  # 调用 Python 脚本执行清理 (retention.py 位于 /app/dashboard/ 目录)
   if python3 /app/dashboard/retention.py 2>&1 | tee /tmp/retention.log; then
     echo "✅ Cleanup finished."
   else
@@ -165,7 +157,6 @@ if [[ -n "${error_msg}" ]]; then
   send_telegram_error "${error_msg}"
   exit 1
 elif [[ -n "${cleanup_error}" ]]; then
-  # 清理失败不阻断备份成功的状态，但发送警告
   send_telegram_error "${cleanup_error}"
 fi
 
