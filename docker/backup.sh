@@ -18,7 +18,7 @@ set -euo pipefail
 # 自动加载 rclone 配置
 if [[ -z "${RCLONE_CONFIG:-}" && -n "${RCLONE_CONF_BASE64:-}" ]]; then
   mkdir -p /config/rclone
-  # 使用 tr 删除可能存在的换行符和空格，防止 base64 解码失败
+  # 关键修复：增加 tr -d '\n\r ' 剔除所有换行符和空格，防止 base64 解码失败
   echo "${RCLONE_CONF_BASE64}" | tr -d '\n\r ' | base64 -d > /config/rclone/rclone.conf
   export RCLONE_CONFIG="/config/rclone/rclone.conf"
 fi
