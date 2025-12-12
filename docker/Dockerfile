@@ -2,6 +2,8 @@ FROM vaultwarden/server:latest
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
+
+# Rclone 需要升级修改最新版本号后重新部署
 ARG RCLONE_VERSION=v1.68.2
 
 # 安装依赖
